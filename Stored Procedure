@@ -1,0 +1,126 @@
+USE [Application]
+GO
+/****** Object:  StoredProcedure [dbo].[spStudentDashboard]  ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+
+-- =============================================
+-- Author:		Himani Makode
+-- Create date: 07/01/2017
+-- Description:	This function returns the student dashboard data for a specific student
+-- =============================================
+CREATE PROCEDURE [dbo].[spStudentDashboard]
+(
+	-- Add the parameters for the function here
+	@StudentID int,
+)
+AS
+BEGIN
+	-- Fill the table variable with the rows for your result set
+
+	SET NOCOUNT ON;
+
+	DECLARE @StudentDashboard TABLE 
+	(
+		-- Add the column definitions for the TABLE variable here
+		FormName nvarchar(500), 
+		Complete int,
+		Incomplete int,
+		NotStarted int,
+		NotApplicable int,
+		DetailsColumns1 nvarchar(500), 
+		DetailsColumns2 nvarchar(500)
+	)
+
+	DECLARE @StudentDashboardDetails TABLE 
+	(
+		-- Add the column definitions for the TABLE variable here
+		FormName nvarchar(500), 
+		Complete int,
+		Incomplete int,
+		NotStarted int,
+		NotApplicable int,
+		DetailsColumns1 nvarchar(500), 
+		DetailsColumns2 nvarchar(500)
+	)
+	
+	DECLARE @InitialStudentDashboard TABLE 
+	(
+		-- Add the column definitions for the TABLE variable here
+		Complete int,
+		Incomplete int,
+		DetailsColumns1 nvarchar(500), 
+		DetailsColumns2 nvarchar(500)
+	)
+	DECLARE @Dashboard TABLE
+	(
+		FormName nvarchar(500), 
+		TableName nvarchar(500),
+		DetailsColumnCount int,
+		DetailsColumns nvarchar(500),
+		GroupByColumns nvarchar(500),
+		SortOrder smallint
+	)
+
+	Declare @Student18Years int=(select case when datediff(year,BirthDate,GETDATE())>=18 then 1 else 0 end from Demographics where StudentID=@StudentID)
+
+	DECLARE @FormName nvarchar(500), 
+		@TableName nvarchar(500),
+		@DetailsColumns nvarchar(500),
+		@GroupByColumns nvarchar(500),
+		@Query nvarchar(max),
+		@DetailsColumnCount int,
+		@Complete int,
+		@Incomplete int
+
+	INSERT INTO @Dashboard
+	SELECT FormName, TableName,DetailsColumnCount,DetailsColumns,GroupByColumns,SortOrder FROM CodesStudentDashboardConfig
+
+	WHILE EXISTS(SELECT * FROM @Dashboard)
+	BEGIN
+		SELECT @Complete = 0 , @Incomplete = 0, @DetailsColumns = NULL, @GroupByColumns=NULL
+
+		SELECT TOP(1) @FormName = FormName, @TableName = TableName, @DetailsColumnCount=DetailsColumnCount, @DetailsColumns=DetailsColumns, @GroupByColumns=GroupByColumns FROM @Dashboard ORDER BY SortOrder
+
+		if @FormName LIKE 'Demographics'
+		   SET @Query = 'SELECT SUM(CASE WHEN FormDataComplete = 1 THEN 1 ELSE 0 END), SUM(CASE WHEN FormDataComplete = 0 THEN 1 ELSE 0 END), NULL, NULL FROM ' + @TableName + ' WHERE StudentID = @StudentID GROUP BY StudentID, CreatedAt'
+		ELSE if @FormName LIKE 'Questionnaire'
+			SET @Query = 'SELECT SUM(CASE WHEN IsSubmitted = 1 THEN 1 ELSE 0 END), SUM(CASE WHEN IsSubmitted = 0 THEN 1 ELSE 0 END),'+@DetailsColumns+', NULL FROM ' + @TableName + '  WHERE StudentID = @StudentID GROUP BY StudentID, '+@DetailsColumns+', '+@GroupByColumns
+		ELSE
+		   SET @Query = 'SELECT SUM(CASE WHEN FormDataComplete = 1 THEN 1 ELSE 0 END), SUM(CASE WHEN FormDataComplete = 0 THEN 1 ELSE 0 END), NULL, NULL FROM ' + @TableName + ' WHERE StudentID = @StudentID GROUP BY StudentID, CreatedAt'
+
+		INSERT INTO @InitialStudentDashboard
+		EXEC sp_executesql @Query , N'@StudentID int', @StudentID
+
+		if EXISTS(SELECT 1 FROM @InitialStudentDashboard)
+			BEGIN
+				WHILE EXISTS(SELECT * FROM @InitialStudentDashboard)
+					BEGIN
+						INSERT INTO @StudentDashboard
+							SELECT @FormName, (Select TOP (1) Complete from @InitialStudentDashboard)  AS Complete, 
+							(Select TOP (1) Incomplete from @InitialStudentDashboard) AS Incomplete, 
+							CASE WHEN (Select TOP (1) Complete from @InitialStudentDashboard) = 0 AND (Select TOP (1) Incomplete from @InitialStudentDashboard) = 0 THEN 1 ELSE 0 END,
+							Case When @Student18Years = 0 THEN 1 ELSE 0 END,
+							(Select TOP (1) DetailsColumns1 From @InitialStudentDashboard) as DetailsColumns1, (Select TOP (1) DetailsColumns2 from @InitialStudentDashboard) as DetailsColumns2
+
+						Delete TOP (1) FROM @InitialStudentDashboard
+					END
+			END
+		ELSE
+			INSERT INTO @StudentDashboard
+			SELECT @FormName, @Complete,@Incomplete,CASE WHEN @Complete = 0 AND @Incomplete = 0 THEN 1 ELSE 0 END,
+			Case When @Student18Years = 0 THEN 1 ELSE 0 END,
+						NULL as DetailsColumns1, NULL as DetailsColumns2
+
+		DELETE FROM @Dashboard WHERE TableName = @TableName
+	END
+	Insert Into @StudentDashboardDetails
+		Select FormName, Complete, Incomplete, NotStarted, NotApplicable,
+		DetailsColumns1,
+		DetailsColumns2
+		from @StudentDashboard
+
+	SELECT FormName, Complete, Incomplete, NotStarted, NotApplicable, DetailsColumns1, DetailsColumns2, ISNULL(DetailsColumns1,'')+ISNULL(' - '+DetailsColumns2,'') as DisplayColumnDescription FROM @StudentDashboardDetails
+END
