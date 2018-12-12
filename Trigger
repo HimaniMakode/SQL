@@ -1,0 +1,42 @@
+USE Employee
+GO
+
+
+--------------------------- TrgEmployeeRecord ---------------------------
+CREATE TRIGGER [dbo].[TrgEmployeeRecord] ON  [dbo].[EmployeeRecord] AFTER INSERT,DELETE,UPDATE
+AS 
+BEGIN
+	-- SET NOCOUNT ON added to prevent extra result sets from interfering with SELECT statements.
+	SET NOCOUNT ON;
+
+    declare	@Type varchar(1) ,
+			@UpdateDate datetime ,
+			@UserName varchar(128) ,
+			@field int ,
+			@maxfield int,
+			@sql varchar(2000),
+			@fieldname varchar(128)
+			
+	if exists (select * from inserted) 
+		begin
+			if exists (select * from deleted)
+				select @Type = 'U'
+			else
+				select @Type = 'I'	
+		end
+	else
+		begin
+			select @Type = 'D'
+		end
+	
+	select @UpdateDate = CONVERT(datetime,SYSDATETIME(),121), @UserName = SYSTEM_USER
+	
+	if @Type ='D'
+		insert into Audit_EmployeeRecord select @Type, @UserName, @UpdateDate, * from deleted
+	else
+		insert into Audit_EmployeeRecord select @Type, @UserName, @UpdateDate, * from inserted
+	
+END
+GO
+
+--------------------------------------------------------------------------------
