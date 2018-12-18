@@ -1,4 +1,3 @@
-
 Create FUNCTION [dbo].[fnSplitString]
 (	
   @Delimited nvarchar(max),
