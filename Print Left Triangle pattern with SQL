@@ -1,0 +1,7 @@
+Declare @i int
+Set @i = 1
+while @i<6
+Begin 
+	Print replicate('*',@i)
+	Set @i = @i + 1
+End
