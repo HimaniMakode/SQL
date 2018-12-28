@@ -1,0 +1,7 @@
+Declare @i int=1
+Declare @max int = 6
+While @i<@max
+Begin
+	Print space(@max-@i)+replicate('*',@i)
+	set @i = @i + 1
+end
